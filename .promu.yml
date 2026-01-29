@@ -24,5 +24,3 @@ crossbuild:
     - freebsd/amd64
     - linux/amd64
     - linux/arm64
-    - windows/amd64
-    - linux/ppc64le

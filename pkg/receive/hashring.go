@@ -124,10 +124,11 @@ func (s simpleHashring) GetN(tenant string, ts *prompb.TimeSeries, n uint64) (En
 }
 
 type section struct {
-	az            string
-	endpointIndex uint64
-	hash          uint64
-	replicas      []uint64
+	az             string
+	endpointIndex  uint64
+	hash           uint64
+	replicas       []uint64
+	preferSameZone bool
 }
 
 type sections []*section
@@ -162,10 +163,11 @@ func newKetamaHashring(endpoints []Endpoint, sectionsPerNode int, replicationFac
 		for i := 1; i <= sectionsPerNode; i++ {
 			_, _ = hash.Write([]byte(endpoint.Address + ":" + strconv.Itoa(i)))
 			n := &section{
-				az:            endpoint.AZ,
-				endpointIndex: uint64(endpointIndex),
-				hash:          hash.Sum64(),
-				replicas:      make([]uint64, 0, replicationFactor),
+				az:             endpoint.AZ,
+				endpointIndex:  uint64(endpointIndex),
+				hash:           hash.Sum64(),
+				replicas:       make([]uint64, 0, replicationFactor),
+				preferSameZone: endpoint.PreferSameZone,
 			}
 
 			ringSections = append(ringSections, n)
@@ -199,6 +201,7 @@ func sizeOfLeastOccupiedAZ(azSpread map[string]int64) int64 {
 // calculateSectionReplicas pre-calculates replicas for each section,
 // ensuring that replicas for each ring section are owned by different endpoints.
 func calculateSectionReplicas(ringSections sections, replicationFactor uint64, availabilityZones map[string]struct{}) {
+
 	for i, s := range ringSections {
 		replicas := make(map[uint64]struct{})
 		azSpread := make(map[string]int64)
@@ -210,16 +213,27 @@ func calculateSectionReplicas(ringSections sections, replicationFactor uint64, a
 		for uint64(len(replicas)) < replicationFactor {
 			j = (j + 1) % len(ringSections)
 			rep := ringSections[j]
+			// skip replica if it is already present
 			if _, ok := replicas[rep.endpointIndex]; ok {
 				continue
 			}
-			if len(azSpread) > 1 && azSpread[rep.az] > 0 && azSpread[rep.az] > sizeOfLeastOccupiedAZ(azSpread) {
-				// We want to ensure even AZ spread before we add more replicas within the same AZ
-				continue
+			if s.preferSameZone {
+				// prefer replicas to be in the same availability zone
+				if s.az != rep.az {
+					continue
+				}
+			} else {
+				if len(azSpread) > 1 && azSpread[rep.az] > 0 && azSpread[rep.az] > sizeOfLeastOccupiedAZ(azSpread) {
+					// We want to ensure even AZ spread before we add more replicas within the same AZ
+					continue
+				}
 			}
 			replicas[rep.endpointIndex] = struct{}{}
 			azSpread[rep.az]++
 			s.replicas = append(s.replicas, rep.endpointIndex)
+			fmt.Println("replicas start")
+			fmt.Println(s.replicas)
+			fmt.Println("replicas finish")
 		}
 	}
 }

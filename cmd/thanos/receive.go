@@ -197,7 +197,7 @@ func runReceive(
 					return errors.Errorf("found that TSDB Max time is %d and Min time is %d. "+
 						"Compaction needs to be disabled (tsdb.min-block-duration = tsdb.max-block-duration)", tsdbOpts.MaxBlockDuration, tsdbOpts.MinBlockDuration)
 				}
-				level.Warn(logger).Log("msg", "flag to ignore min/max block duration flags differing is being used. If the upload of a 2h block fails and a tsdb compaction happens that block may be missing from your Thanos bucket storage.")
+				level.Info(logger).Log("msg", "delaying compaction until blocks are uploaded by the shipper")
 			}
 			// The background shipper continuously scans the data directory and uploads
 			// new blocks to object storage service.
@@ -235,6 +235,8 @@ func runReceive(
 	}
 
 	multiTSDBOptions = append(multiTSDBOptions, receive.WithUploadConcurrency(conf.uploadConcurrency))
+
+	multiTSDBOptions = append(multiTSDBOptions, receive.WithDelayCompactionUntilUploaded(conf.ignoreBlockSize))
 
 	dbs := receive.NewMultiTSDB(
 		conf.dataDir,
@@ -1081,7 +1083,11 @@ func (rc *receiveConfig) registerFlag(cmd extkingpin.FlagClause) {
 	cmd.Flag("hash-func", "Specify which hash function to use when calculating the hashes of produced files. If no function has been specified, it does not happen. This permits avoiding downloading some files twice albeit at some performance cost. Possible values are: \"\", \"SHA256\".").
 		Default("").EnumVar(&rc.hashFunc, "SHA256", "")
 
-	cmd.Flag("shipper.ignore-unequal-block-size", "If true receive will not require min and max block size flags to be set to the same value. Only use this if you want to keep long retention and compaction enabled, as in the worst case it can result in ~2h data loss for your Thanos bucket storage.").Default("false").Hidden().BoolVar(&rc.ignoreBlockSize)
+	cmd.Flag("shipper.ignore-unequal-block-size",
+		"If true, TSDB compaction will be delayed until blocks have been uploaded by the shipper. "+
+			"This allows enabling compaction when tsdb.min-block-duration and tsdb.max-block-duration differ "+
+			"without risking data loss due to blocks being compacted before upload.").
+		Default("false").Hidden().BoolVar(&rc.ignoreBlockSize)
 
 	cmd.Flag("shipper.allow-out-of-order-uploads",
 		"If true, shipper will skip failed block uploads in the given iteration and retry later. This means that some newer blocks might be uploaded sooner than older blocks."+

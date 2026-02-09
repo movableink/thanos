@@ -79,6 +79,8 @@ type MultiTSDB struct {
 	headExpandedPostingsCacheSize  uint64
 	blockExpandedPostingsCacheSize uint64
 
+	delayCompactionUntilUploaded bool
+
 	initSingleFlight singleflight.Group
 }
 
@@ -113,6 +115,14 @@ func WithMatchersCache(cache storecache.MatchersCache) MultiTSDBOption {
 func WithUploadConcurrency(concurrency int) MultiTSDBOption {
 	return func(s *MultiTSDB) {
 		s.uploadConcurrency = concurrency
+	}
+}
+
+// WithDelayCompactionUntilUploaded enables delaying compaction of blocks until they
+// have been uploaded by the shipper.
+func WithDelayCompactionUntilUploaded(enabled bool) MultiTSDBOption {
+	return func(s *MultiTSDB) {
+		s.delayCompactionUntilUploaded = enabled
 	}
 }
 
@@ -779,6 +789,22 @@ func (t *MultiTSDB) startTSDB(logger log.Logger, tenantID string, tenant *tenant
 	// into other ones. This presents a race between compaction and the shipper (if it is configured to upload compacted blocks).
 	// Hence, avoid this situation by disabling overlapping compaction. Vertical compaction must be enabled on the compactor.
 	opts.EnableOverlappingCompaction = false
+
+	// Exclude blocks from compaction that have not yet been uploaded by the shipper.
+	// This allows running with compaction enabled (tsdb.min-block-duration != tsdb.max-block-duration)
+	// without risking data loss due to blocks being compacted before upload.
+	if t.delayCompactionUntilUploaded && t.bucket != nil {
+		opts.BlockCompactionExcludeFunc = func(meta *tsdb.BlockMeta) bool {
+			s := tenant.shipper()
+			if s == nil {
+				// Shipper not yet initialized, exclude all blocks from compaction.
+				return true
+			}
+			uploaded := s.UploadedBlocks()
+			_, ok := uploaded[meta.ULID]
+			return !ok
+		}
+	}
 
 	// We don't do scrapes ourselves so this only gives us a performance penalty.
 	opts.IsolationDisabled = true

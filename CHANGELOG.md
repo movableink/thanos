@@ -18,6 +18,8 @@ It is recommend to upgrade the storage components first (Receive, Store, etc.) a
 
 ### Changed
 
+- [#8670](https://github.com/thanos-io/thanos/pull/8670): Receive: `--shipper.ignore-unequal-block-size` now delays TSDB compaction until blocks have been uploaded by the shipper, allowing compaction while uploading without risking data loss.
+
 ### Removed
 
 ## [v0.41.0 - <in progress>](https://github.com/thanos-io/thanos/tree/release-0.41) - 2026 02 09

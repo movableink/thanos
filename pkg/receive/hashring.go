@@ -216,7 +216,9 @@ func newKetamaHashringPreferSameZone(endpoints []Endpoint, sectionsPerNode int, 
 		}
 	}
 	sort.Sort(ringSections)
+	// Calculate both: AZ-specific replicas for same-zone preference, and regular replicas for fallback
 	calculateSectionReplicasByAZ(ringSections, replicationFactor, availabilityZones, endpoints)
+	calculateSectionReplicas(ringSections, replicationFactor, availabilityZones)
 
 	return &ketamaHashring{
 		endpoints:      endpoints,
@@ -338,7 +340,8 @@ func (c ketamaHashring) GetN(tenant string, ts *prompb.TimeSeries, n uint64) (En
 		i = 0
 	}
 
-	// If preferSameZone is enabled, use the AZ-specific replica list
+	// If preferSameZone is enabled, try to use the AZ-specific replica list first.
+	// If the local AZ doesn't have enough replicas, fall back to the regular cross-AZ algorithm.
 	if c.preferSameZone {
 		localAZ := os.Getenv("THANOS_RECEIVE_AVAILABILITY_ZONE")
 		if localAZ != "" {
@@ -346,8 +349,7 @@ func (c ketamaHashring) GetN(tenant string, ts *prompb.TimeSeries, n uint64) (En
 			if n < uint64(len(azReplicas)) {
 				return c.endpoints[azReplicas[n]], nil
 			}
-			// If n exceeds available replicas in this AZ, return insufficient nodes error
-			return Endpoint{}, &insufficientNodesError{have: uint64(len(azReplicas)), want: n + 1}
+			// Fall back to regular cross-AZ replicas if local AZ doesn't have enough
 		}
 	}
 

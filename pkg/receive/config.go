@@ -67,10 +67,11 @@ type Endpoint struct {
 	Address          string `json:"address"`
 	CapNProtoAddress string `json:"capnproto_address"`
 	AZ               string `json:"az"`
+	PreferSameZone   bool   `json:"prefer_same_zone,omitempty"`
 }
 
 func (e *Endpoint) String() string {
-	return fmt.Sprintf("addr: %s, capnp_addr: %s, az: %s", e.Address, e.CapNProtoAddress, e.AZ)
+	return fmt.Sprintf("addr: %s, capnp_addr: %s, az: %s", e.Address, e.CapNProtoAddress, e.AZ, e.PreferSameZone)
 }
 
 func (e *Endpoint) HasAddress(addr string) bool {
@@ -113,6 +114,7 @@ func (e *Endpoint) unmarshal(data []byte) error {
 	e.Address = configEndpoint.Address
 	e.AZ = configEndpoint.AZ
 	e.CapNProtoAddress = configEndpoint.CapNProtoAddress
+	e.PreferSameZone = configEndpoint.PreferSameZone
 	return nil
 }
 

@@ -199,7 +199,7 @@ func TestHashringGet(t *testing.T) {
 			tenant: "t2",
 		},
 	} {
-		hs, err := NewMultiHashring(AlgorithmHashmod, 3, tc.cfg, prometheus.NewRegistry())
+		hs, err := NewMultiHashring(AlgorithmHashmod, 3, tc.cfg, prometheus.NewRegistry(), false)
 		require.NoError(t, err)
 
 		h, err := hs.GetN(tc.tenant, ts, 0)
@@ -664,7 +664,7 @@ func TestInvalidAZHashringCfg(t *testing.T) {
 		},
 	} {
 		t.Run("", func(t *testing.T) {
-			_, err := NewMultiHashring(tt.algorithm, tt.replicas, tt.cfg, prometheus.NewRegistry())
+			_, err := NewMultiHashring(tt.algorithm, tt.replicas, tt.cfg, prometheus.NewRegistry(), false)
 			require.EqualError(t, err, tt.expectedError)
 		})
 	}

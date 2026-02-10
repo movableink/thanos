@@ -624,7 +624,7 @@ func setupHashring(g *run.Group,
 					webHandler.Hashring(receive.SingleNodeHashring(conf.endpoint))
 					level.Info(logger).Log("msg", "Empty hashring config. Set up single node hashring.")
 				} else {
-					h, err := receive.NewMultiHashring(algorithm, conf.replicationFactor, c, reg)
+					h, err := receive.NewMultiHashring(algorithm, conf.replicationFactor, c, reg, conf.preferSameZone)
 					if err != nil {
 						return errors.Wrap(err, "unable to create new hashring from config")
 					}
@@ -934,6 +934,8 @@ type receiveConfig struct {
 	compactedBlocksExpandedPostingsCacheSize uint64
 	otlpEnableTargetInfo                     bool
 	otlpResourceAttributes                   []string
+
+	preferSameZone bool
 }
 
 func (rc *receiveConfig) registerFlag(cmd extkingpin.FlagClause) {
@@ -1104,6 +1106,10 @@ func (rc *receiveConfig) registerFlag(cmd extkingpin.FlagClause) {
 
 	cmd.Flag("receive.lazy-retrieval-max-buffered-responses", "The lazy retrieval strategy can buffer up to this number of responses. This is to limit the memory usage. This flag takes effect only when the lazy retrieval strategy is enabled.").
 		Default("20").IntVar(&rc.lazyRetrievalMaxBufferedResponses)
+
+	cmd.Flag("receive.prefer-same-zone",
+		"[EXPERIMENTAL] Enables sending traffic to the same zone").
+		Default("false").BoolVar(&rc.preferSameZone)
 }
 
 // determineMode returns the ReceiverMode that this receiver is configured to run in.

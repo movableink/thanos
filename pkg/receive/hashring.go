@@ -784,6 +784,9 @@ func (s *shuffleShardHashring) getTenantShard(tenant string) (*ketamaHashring, e
 		}
 	}
 
+	if baseRing.preferSameZone {
+		return newKetamaHashringPreferSameZone(finalNodes, SectionsPerNode, s.replicationFactor)
+	}
 	return newKetamaHashring(finalNodes, SectionsPerNode, s.replicationFactor)
 }
 
@@ -801,7 +804,8 @@ func (s *shuffleShardHashring) GetN(tenant string, ts *prompb.TimeSeries, n uint
 // groups.
 // Which hashring to use for a tenant is determined
 // by the tenants field of the hashring configuration.
-func NewMultiHashring(algorithm HashringAlgorithm, replicationFactor uint64, cfg []HashringConfig, reg prometheus.Registerer, preferSameZone bool) (Hashring, error) {
+func NewMultiHashring(algorithm HashringAlgorithm, replicationFactor uint64, cfg []HashringConfig, reg prometheus.Registerer, preferSameZoneOption ...bool) (Hashring, error) {
+	preferSameZone := len(preferSameZoneOption) > 0 && preferSameZoneOption[0]
 	m := &multiHashring{
 		cache: make(map[string]Hashring),
 	}
@@ -847,26 +851,23 @@ func newHashring(algorithm HashringAlgorithm, endpoints []Endpoint, replicationF
 		}
 		return ringImpl, nil
 	case AlgorithmKetama:
-
+		var ringImpl *ketamaHashring
+		var err error
 		if preferSameZone {
-			ringImpl, err := newKetamaHashringPreferSameZone(endpoints, SectionsPerNode, replicationFactor)
-			if err != nil {
-				return nil, err
-			}
-			return ringImpl, nil
+			ringImpl, err = newKetamaHashringPreferSameZone(endpoints, SectionsPerNode, replicationFactor)
 		} else {
-			ringImpl, err := newKetamaHashring(endpoints, SectionsPerNode, replicationFactor)
-			if err != nil {
-				return nil, err
-			}
-			if shuffleShardingConfig.ShardSize > 0 {
-				if shuffleShardingConfig.ShardSize > len(endpoints) {
-					return nil, fmt.Errorf("shard size %d is larger than number of nodes in hashring %s (%d)", shuffleShardingConfig.ShardSize, hashring, len(endpoints))
-				}
-				return newShuffleShardHashring(ringImpl, shuffleShardingConfig, replicationFactor, reg, hashring)
-			}
-			return ringImpl, nil
+			ringImpl, err = newKetamaHashring(endpoints, SectionsPerNode, replicationFactor)
 		}
+		if err != nil {
+			return nil, err
+		}
+		if shuffleShardingConfig.ShardSize > 0 {
+			if shuffleShardingConfig.ShardSize > len(endpoints) {
+				return nil, fmt.Errorf("shard size %d is larger than number of nodes in hashring %s (%d)", shuffleShardingConfig.ShardSize, hashring, len(endpoints))
+			}
+			return newShuffleShardHashring(ringImpl, shuffleShardingConfig, replicationFactor, reg, hashring)
+		}
+		return ringImpl, nil
 	default:
 		l := log.NewNopLogger()
 		level.Warn(l).Log("msg", "Unrecognizable hashring algorithm. Fall back to hashmod algorithm.",

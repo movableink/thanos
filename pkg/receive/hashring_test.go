@@ -199,7 +199,7 @@ func TestHashringGet(t *testing.T) {
 			tenant: "t2",
 		},
 	} {
-		hs, err := NewMultiHashring(AlgorithmHashmod, 3, tc.cfg, prometheus.NewRegistry(), false)
+		hs, err := NewMultiHashring(AlgorithmHashmod, 3, tc.cfg, prometheus.NewRegistry())
 		require.NoError(t, err)
 
 		h, err := hs.GetN(tc.tenant, ts, 0)
@@ -308,6 +308,87 @@ func TestKetamaHashringBadConfigIsRejected(t *testing.T) {
 
 	_, err := newKetamaHashring([]Endpoint{{Address: "node-1"}}, 1, 2)
 	require.Error(t, err)
+}
+
+func TestKetamaHashringPreferSameZone(t *testing.T) {
+	t.Setenv("THANOS_RECEIVE_AVAILABILITY_ZONE", "zone-a")
+
+	endpoints := []Endpoint{
+		{Address: "a-1", AZ: "zone-a"},
+		{Address: "a-2", AZ: "zone-a"},
+		{Address: "a-3", AZ: "zone-a"},
+		{Address: "b-1", AZ: "zone-b"},
+		{Address: "b-2", AZ: "zone-b"},
+		{Address: "b-3", AZ: "zone-b"},
+		{Address: "c-1", AZ: "zone-c"},
+		{Address: "c-2", AZ: "zone-c"},
+		{Address: "c-3", AZ: "zone-c"},
+	}
+	ring, err := newKetamaHashringPreferSameZone(endpoints, SectionsPerNode, 3)
+	require.NoError(t, err)
+
+	for n := uint64(0); n < 3; n++ {
+		endpoint, err := ring.GetN("tenant", &prompb.TimeSeries{}, n)
+		require.NoError(t, err)
+		require.Equal(t, "zone-a", endpoint.AZ)
+	}
+}
+
+func TestKetamaHashringPreferSameZoneFallsBackToOtherZones(t *testing.T) {
+	t.Setenv("THANOS_RECEIVE_AVAILABILITY_ZONE", "zone-a")
+
+	endpoints := []Endpoint{
+		{Address: "a-1", AZ: "zone-a"},
+		{Address: "a-2", AZ: "zone-a"},
+		{Address: "b-1", AZ: "zone-b"},
+		{Address: "b-2", AZ: "zone-b"},
+		{Address: "c-1", AZ: "zone-c"},
+		{Address: "c-2", AZ: "zone-c"},
+	}
+	ring, err := newKetamaHashringPreferSameZone(endpoints, SectionsPerNode, 3)
+	require.NoError(t, err)
+
+	for n := uint64(0); n < 2; n++ {
+		endpoint, err := ring.GetN("tenant", &prompb.TimeSeries{}, n)
+		require.NoError(t, err)
+		require.Equal(t, "zone-a", endpoint.AZ)
+	}
+	endpoint, err := ring.GetN("tenant", &prompb.TimeSeries{}, 2)
+	require.NoError(t, err)
+	require.NotEqual(t, "zone-a", endpoint.AZ)
+}
+
+func TestPreferSameZoneWithShuffleSharding(t *testing.T) {
+	t.Setenv("THANOS_RECEIVE_AVAILABILITY_ZONE", "zone-a")
+
+	endpoints := []Endpoint{
+		{Address: "a-1", AZ: "zone-a"},
+		{Address: "a-2", AZ: "zone-a"},
+		{Address: "a-3", AZ: "zone-a"},
+		{Address: "b-1", AZ: "zone-b"},
+		{Address: "b-2", AZ: "zone-b"},
+		{Address: "b-3", AZ: "zone-b"},
+		{Address: "c-1", AZ: "zone-c"},
+		{Address: "c-2", AZ: "zone-c"},
+		{Address: "c-3", AZ: "zone-c"},
+	}
+	ring, err := NewMultiHashring(AlgorithmKetama, 3, []HashringConfig{{
+		Endpoints: endpoints,
+		ShuffleShardingConfig: ShuffleShardingConfig{
+			ShardSize: 6,
+			CacheSize: 10,
+		},
+	}}, prometheus.NewRegistry(), true)
+	require.NoError(t, err)
+
+	for n := uint64(0); n < 2; n++ {
+		endpoint, err := ring.GetN("tenant", &prompb.TimeSeries{}, n)
+		require.NoError(t, err)
+		require.Equal(t, "zone-a", endpoint.AZ)
+	}
+	endpoint, err := ring.GetN("tenant", &prompb.TimeSeries{}, 2)
+	require.NoError(t, err)
+	require.NotEqual(t, "zone-a", endpoint.AZ)
 }
 
 func TestKetamaHashringConsistency(t *testing.T) {
@@ -674,7 +755,7 @@ func TestInvalidAZHashringCfg(t *testing.T) {
 		},
 	} {
 		t.Run("", func(t *testing.T) {
-			_, err := NewMultiHashring(tt.algorithm, tt.replicas, tt.cfg, prometheus.NewRegistry(), false)
+			_, err := NewMultiHashring(tt.algorithm, tt.replicas, tt.cfg, prometheus.NewRegistry())
 			require.EqualError(t, err, tt.expectedError)
 		})
 	}
